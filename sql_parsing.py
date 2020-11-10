@@ -40,11 +40,11 @@ if __name__ == "__main__":
     LEFT JOIN patients
     ON patients.SUBJECT_ID = chartevents.SUBJECT_ID
     WHERE (chartevents.ITEMID == 220045 or chartevents.ITEMID == 223761 or 
-             chartevents.ITEMID == 228232  or 
+             chartevents.ITEMID == 224166  or 
              chartevents.ITEMID == 220051 or chartevents.ITEMID == 220050)
 
     """
-    parse_sql(script, 'mimic3.db', 'chartevents_filtered.csv')
+    parse_sql(script, 'mimic3.db', 'chartevents_actual.csv')
 
     labels = {
         220045: "Heart Rate",
