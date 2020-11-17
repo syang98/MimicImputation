@@ -1,0 +1,113 @@
+---
+title: "R Notebook: UROP KNN Imputation"
+output: html_notebook
+---
+
+```{r}
+#KNN imputation filtered chartevents
+
+con = file("chartevents_filtered.csv", "r")
+df = read.csv(con,nrows= 5000)
+
+
+# only numeric
+library(dplyr)
+df_num = select_if(df, is.numeric)
+
+#TODO OPT COLUMNS TO PICK??
+df_final = subset(df_num, select=-c(ROW_ID, ROW_ID.1,ITEMID, CGID, VALUENUM, ERROR, SUBJECT_ID.1 )) #HADM_ID, ICUSTAY_ID, 
+
+#GENDER
+df$male <- ifelse(df$GENDER == "M", 1,0)
+
+#UOM
+library(dummies)
+uom <- dummy(df$VALUEUOM, sep = '_')
+uom <- as.data.frame(uom)
+
+df_final$deg_f <- uom$`VALUEUOM_?F`
+df_final$bpm <- uom$VALUEUOM_bpm
+df_final$mmHg <- uom$VALUEUOM_mmHg
+View(df)
+
+#AGE
+#-- are these vals correct ??
+df_final$yob <- as.integer(substr(df$DOB,0,4))
+
+#SEASON
+df$month <- as.integer(substr(df$CHARTTIME,6,7))
+df_final$szn4 <- ifelse(df$month >9 , 1 ,0)
+df_final$szn3 <- ifelse(df$month >6 & df$month <=9 , 1, 0)
+df_final$szn2 <- ifelse(df$month >3 & df$month <=6 , 1, 0)
+df_final$szn1 <- ifelse(df$month >0 & df$month <=3 , 1, 0)
+View(df_final)
+
+
+```
+```{r}
+#Add missing data
+install.packages("mice")
+set.seed(15)
+
+df_final[sample(1:nrow(df_final), 300),"VALUE"] <- NA
+
+### View Pattern of Missing Values
+#library(mice)
+#imputed = df_final[, c('X','VALUE')]
+#md.pattern(imputed)
+
+#Imputing
+library(DMwR)
+
+n = 5
+knnout <- knnImputation(data.frame(df_final), k = n, meth = 'weighAv')
+View(knnout)
+df_final$diff = ifelse(is.na(df_final$VALUE),  knnout$VALUE - df$VALUE, NA)
+
+
+#Check Results
+#print(n)
+#print(max(df_final$diff, na.rm = T))
+#print(min(df_final$diff, na.rm = T))
+#print(mean(df_final$diff, na.rm = T))
+
+hist(df_final$diff)
+```
+
+
+
+```{r}
+
+#Breaking up by type of reading
+
+hr = df_final[df_final$bpm == 1, ]
+hr = subset(hr, select=-c(deg_f, mmHg))
+temp = df_final[df_final$deg_f == 1, ]
+temp = subset(temp, select=-c(bpm, mmHg))
+apb = df_final[df_final$mmHg == 1, ]
+apb = subset(apb, select=-c(deg_f, bpm))
+
+
+#Add missing data
+install.packages("mice")
+set.seed(15)
+hr[sample(1:nrow(hr), 300),"VALUE"] <- NA
+
+### View Pattern of Missing Values
+#library(mice)
+#imputed = set[, c('X','VALUE')]
+#md.pattern(imputed)
+
+library(DMwR)
+sum(complete.cases(hr))
+knnout_hr <- knnImputation(hr, meth = 'weighAvg')
+View(knnout_hr)
+hr$diff = ifelse(is.na(hr$VALUE),  knnout_hr$VALUE - df$VALUE, NA)
+
+```
+
+
+
+
+The preview shows you a rendered HTML copy of the contents of the editor. Consequently, unlike *Knit*, *Preview* does not run any R code chunks. Instead, the output of the chunk when it was last run in the editor is displayed.
+
