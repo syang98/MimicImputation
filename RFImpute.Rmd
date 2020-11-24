@@ -1,0 +1,45 @@
+
+---
+title: "R Notebook: UROP RF Imputation"
+output: html_notebook
+---
+
+```{r}
+#RF on good_data_set.csv
+con = file("good_data_set.csv", 'r')
+df = read.csv(con,nrows= 9150)
+View(df)
+# only numeric
+library(dplyr)
+df_num = select_if(df, is.numeric)
+# #TODO OPT COLUMNS TO PICK??
+df_final = subset(df_num, select=-c(X, Stay)) 
+df_full = subset(df_num, select=-c(X, Stay))
+
+set.seed(15)
+df_final[sample(1:nrow(df_final), 400),"Heart.Rate"] <- NA
+df_final[sample(1:nrow(df_final), 400),"Arterial.Blood.Pressure.systolic"] <- NA
+df_final[sample(1:nrow(df_final), 400),"Arterial.Blood.Pressure.diastolic"] <- NA
+df_final[sample(1:nrow(df_final), 400),"Arterial.Blood.Pressure.mean"] <- NA
+df_final[sample(1:nrow(df_final), 400),"Non.Invasive.Blood.Pressure.systolic"] <- NA
+df_final[sample(1:nrow(df_final), 400),"Non.Invasive.Blood.Pressure.diastoli"] <- NA
+df_final[sample(1:nrow(df_final), 400),"Non.Invasive.Blood.Pressure.mean"] <- NA
+df_final[sample(1:nrow(df_final), 400),"Temperature.Fahrenheit"] <- NA
+View(df_final)
+```
+```{r}
+## View Pattern of Missing Values
+library(mice)
+library(missForest)
+rf_out <- missForest::missForest(df_final, maxiter = 15, ntree = 350, xtrue=df_full)
+View(rf_out$OOBerror)
+View(rf_out$error)
+View(rf_out$ximp)
+View(df_full)
+
+```
+
+
+
+
+The preview shows you a rendered HTML copy of the contents of the editor. Consequently, unlike *Knit*, *Preview* does not run any R code chunks. Instead, the output of the chunk when it was last run in the editor is displayed.
