@@ -1,5 +1,5 @@
 ---
-title: "R Notebook: UROP KNN Imputation"
+title: "MINIC ChartEvents KNN Imputation"
 output: html_notebook
 ---
 
@@ -7,32 +7,28 @@ output: html_notebook
 #KNN imputation filtered chartevents
 
 con = file("chartevents_filtered.csv", "r")
-df = read.csv(con,nrows= 5000)
-
+df = read.csv(con,nrows= 10000)
 
 # only numeric
 library(dplyr)
 df_num = select_if(df, is.numeric)
 
-#TODO OPT COLUMNS TO PICK??
 df_final = subset(df_num, select=-c(ROW_ID, ROW_ID.1,ITEMID, CGID, VALUENUM, ERROR, SUBJECT_ID.1 )) #HADM_ID, ICUSTAY_ID, 
+#df = subset(df, EXPIRE_FLAG == 0) # handlesoutliers from fatalities 
+
 
 #GENDER
-df$male <- ifelse(df$GENDER == "M", 1,0)
+df_final$male <- ifelse(df$GENDER == "M", 1,0)
 
 #UOM
-library(dummies)
-uom <- dummy(df$VALUEUOM, sep = '_')
-uom <- as.data.frame(uom)
-
-df_final$deg_f <- uom$`VALUEUOM_?F`
-df_final$bpm <- uom$VALUEUOM_bpm
-df_final$mmHg <- uom$VALUEUOM_mmHg
-View(df)
-
+#UOM
+df_final$deg_f <- ifelse(df$VALUEUOM == '?F' , 1 ,0)
+df_final$bpm <- ifelse(df$VALUEUOM == 'bpm' , 1 ,0)
+df_final$mmHg <- ifelse(df$VALUEUOM == 'mmgHg' , 1 ,0)
+ 
 #AGE
 #-- are these vals correct ??
-df_final$yob <- as.integer(substr(df$DOB,0,4))
+df$yob <- as.integer(substr(df$DOB,0,4))
 
 #SEASON
 df$month <- as.integer(substr(df$CHARTTIME,6,7))
@@ -40,14 +36,11 @@ df_final$szn4 <- ifelse(df$month >9 , 1 ,0)
 df_final$szn3 <- ifelse(df$month >6 & df$month <=9 , 1, 0)
 df_final$szn2 <- ifelse(df$month >3 & df$month <=6 , 1, 0)
 df_final$szn1 <- ifelse(df$month >0 & df$month <=3 , 1, 0)
+
 View(df_final)
 
-
-```
-```{r}
 #Add missing data
-install.packages("mice")
-set.seed(15)
+#library(mice)
 
 df_final[sample(1:nrow(df_final), 300),"VALUE"] <- NA
 
@@ -58,11 +51,15 @@ df_final[sample(1:nrow(df_final), 300),"VALUE"] <- NA
 
 #Imputing
 library(DMwR)
-
+print(sum(is.na(df_final)))
 n = 5
+
+
 knnout <- knnImputation(data.frame(df_final), k = n, meth = 'weighAv')
 View(knnout)
 df_final$diff = ifelse(is.na(df_final$VALUE),  knnout$VALUE - df$VALUE, NA)
+
+hist(df_final$diff)
 
 
 #Check Results
@@ -71,14 +68,98 @@ df_final$diff = ifelse(is.na(df_final$VALUE),  knnout$VALUE - df$VALUE, NA)
 #print(min(df_final$diff, na.rm = T))
 #print(mean(df_final$diff, na.rm = T))
 
-hist(df_final$diff)
+
+
 ```
 
+```{r}
+'
+df: chartevents csv loaded into df
+'
+process_chartevents <- function(df) {
+   # only numeric
+  library(dplyr)
+  df_num = select_if(df, is.numeric)
+  
+  df_final = subset(df_num, select=-c(ROW_ID, ROW_ID.1,ITEMID, CGID, VALUENUM, ERROR, SUBJECT_ID.1 )) #HADM_ID, ICUSTAY_ID, 
+  
+  #GENDER
+  df_final$male <- ifelse(df$GENDER == "M", 1,0)
+  
+  #AGE
+  df_final$yob <- as.integer(substr(df$DOB,0,4))
+  
+  #UOM
+  library(dummies)
+  uom <- dummy(df$VALUEUOM, sep = '_')
+  uom <- as.data.frame(uom)
+  df_final$deg_f <- uom$`VALUEUOM_?F`
+  df_final$bpm <- uom$VALUEUOM_bpm
+  df_final$mmHg <- uom$VALUEUOM_mmHg
+  #SEASON
+  df$month <- as.integer(substr(df$CHARTTIME,6,7))
+  df_final$szn4 <- ifelse(df$month >9 , 1 ,0)
+  df_final$szn3 <- ifelse(df$month >6 & df$month <=9 , 1, 0)
+  df_final$szn2 <- ifelse(df$month >3 & df$month <=6 , 1, 0)
+  df_final$szn1 <- ifelse(df$month >0 & df$month <=3 , 1, 0)
+  
+  return(df_final)
+}
+
+
+'df: cleaned chartevents
+  n : int for knn
+'
+missing <- function(df, n) {
+  
+  df_og<-data.frame(df) #make copy of df without NAs
+  
+  #Add missing data
+  df[sample(1:nrow(df), 300),"VALUE"] <- NA
+  
+  ### View Pattern of Missing Values
+  #library(mice)
+  #imputed = df_final[, c('X','VALUE')]
+  #md.pattern(imputed)
+  
+  #Imputing
+  library(DMwR)
+  knnout <- knnImputation(data.frame(df), k = n)
+  #View(knnout)
+  #df$diff = ifelse(is.na(df$VALUE),  knnout$VALUE - df_og$VALUE, NA)
+  
+  
+  #Check Results
+  #print(n)
+  #print(max(df_final$diff, na.rm = T))
+  #print(min(df_final$diff, na.rm = T))
+  #print(mean(df_final$diff, na.rm = T))
+  
+  #hist(df$diff)
+  return(knnout)
+}
+```
+
+
+```{r}
+con = file("chartevents_filtered.csv","r")
+events = read.csv(con,nrows= 5000)
+
+preproc <- process_chartevents(events)
+
+n5 <- missing(process_chartevents(events), 5)
+n10 <- missing(process_chartevents(events), 10)
+
+preproc$VALUE = (n5$VALUE + n10$VALUE) / 2
+preproc$diff = preproc$VALUE - events$VALUE
+hist(preproc$diff)
+
+```
 
 
 ```{r}
 
-#Breaking up by type of reading
+#Breaking up by type of reading (HR vs ABP vs TEMP)
 
 hr = df_final[df_final$bpm == 1, ]
 hr = subset(hr, select=-c(deg_f, mmHg))
@@ -105,9 +186,4 @@ View(knnout_hr)
 hr$diff = ifelse(is.na(hr$VALUE),  knnout_hr$VALUE - df$VALUE, NA)
 
 ```
-
-
-
-
-The preview shows you a rendered HTML copy of the contents of the editor. Consequently, unlike *Knit*, *Preview* does not run any R code chunks. Instead, the output of the chunk when it was last run in the editor is displayed.
 
