@@ -27,9 +27,12 @@ df_final[sample(1:nrow(df_final), 400),"Non.Invasive.Blood.Pressure.mean"] <- NA
 df_final[sample(1:nrow(df_final), 400),"Temperature.Fahrenheit"] <- NA
 View(df_final)
 ```
+
+
+
+
 ```{r}
-## View Pattern of Missing Values
-library(mice)
+## View Pattern of Missing Values Without Cross validation
 library(missForest)
 rf_out <- missForest::missForest(df_final, maxiter = 15, ntree = 350, xtrue=df_full)
 View(rf_out$OOBerror)
