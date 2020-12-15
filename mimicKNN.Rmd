@@ -1,84 +1,165 @@
 ---
-title: "R Notebook: UROP KNN Imputation"
+title: "MINIC ChartEvents KNN Imputation"
 output: html_notebook
 ---
 
 ```{r}
-#KNN imputation filtered chartevents
+#HELPER FUNCTIONS
 
-con = file("chartevents_filtered.csv", "r")
-df = read.csv(con,nrows= 5000)
+#process - preprocess data
+#missing - impute after adding missing vals
+
+'
+df: chartevents csv loaded into df
+returns: df with season dummy, unit of measure dummy, age, gender, etc (all numeric) 
+'
+process_chartevents <- function(df) {
+  library(dplyr)
+  df_num = select_if(df, is.numeric)
+  
+  df_final = subset(df_num, select=-c(ROW_ID, ROW_ID.1,ITEMID, CGID, VALUENUM, ERROR, SUBJECT_ID.1 )) #HADM_ID, ICUSTAY_ID, 
+  
+  #GENDER
+  df_final$male <- ifelse(df$GENDER == "M", 1,0)
+  
+  #AGE
+  df_final$yob <- as.integer(substr(df$DOB,0,4))
+  
+  #UOM
+  library(dummies)
+  uom <- dummy(df$VALUEUOM, sep = '_')
+  uom <- as.data.frame(uom)
+  df_final$deg_f <- uom$`VALUEUOM_?F`
+  df_final$bpm <- uom$VALUEUOM_bpm
+  df_final$mmHg <- uom$VALUEUOM_mmHg
+  #SEASON
+  df$month <- as.integer(substr(df$CHARTTIME,6,7))
+  df_final$szn4 <- ifelse(df$month >9 , 1 ,0)
+  df_final$szn3 <- ifelse(df$month >6 & df$month <=9 , 1, 0)
+  df_final$szn2 <- ifelse(df$month >3 & df$month <=6 , 1, 0)
+  df_final$szn1 <- ifelse(df$month >0 & df$month <=3 , 1, 0)
+  
+  return(df_final)
+}
 
 
-# only numeric
-library(dplyr)
-df_num = select_if(df, is.numeric)
+'df: cleaned chartevents (return from process_chartevents)
+  n : int for knn
+  m : int for how many missing vals to add
+  returns df with knn imputation run on missing vals added
+'
+missing <- function(df, n, m = 500) {
+  set.seed(4)
+  df_og<-data.frame(df) #make copy of df without NAs
+  
+  #Add missing data
+  df[sample(1:nrow(df), m),"VALUE"] <- NA
+  
+  ### View Pattern of Missing Values
+  #library(mice)
+  #imputed = df_final[, c('X','VALUE')]
+  #md.pattern(imputed)
+  
+  #Imputing
+  library(DMwR)
+  knnout <- knnImputation(data.frame(df), k = n)
 
-#TODO OPT COLUMNS TO PICK??
-df_final = subset(df_num, select=-c(ROW_ID, ROW_ID.1,ITEMID, CGID, VALUENUM, ERROR, SUBJECT_ID.1 )) #HADM_ID, ICUSTAY_ID, 
+  #Check Results
+  #print(n)
+  #print(max(df_final$diff, na.rm = T))
+  #print(min(df_final$diff, na.rm = T))
+  #print(mean(df_final$diff, na.rm = T))
+  #hist(df$diff)
 
-#GENDER
-df$male <- ifelse(df$GENDER == "M", 1,0)
+  return(knnout)
+}
+```
 
-#UOM
-library(dummies)
-uom <- dummy(df$VALUEUOM, sep = '_')
-uom <- as.data.frame(uom)
+```{r}
+##MSE OF DIFF ATTEMPTS 
+##(results after running mult rounds w diff seeds)
+## MSE using average of 10 and 5 : 1.2 (averaging tended to reduce worst case error in imputation results)
 
-df_final$deg_f <- uom$`VALUEUOM_?F`
-df_final$bpm <- uom$VALUEUOM_bpm
-df_final$mmHg <- uom$VALUEUOM_mmHg
-View(df)
+##MSE using 10 : 1.2
+#MSE using 5 : 1.3
+#MSE using 3 : 1.7
 
-#AGE
-#-- are these vals correct ??
-df_final$yob <- as.integer(substr(df$DOB,0,4))
 
-#SEASON
-df$month <- as.integer(substr(df$CHARTTIME,6,7))
-df_final$szn4 <- ifelse(df$month >9 , 1 ,0)
-df_final$szn3 <- ifelse(df$month >6 & df$month <=9 , 1, 0)
-df_final$szn2 <- ifelse(df$month >3 & df$month <=6 , 1, 0)
-df_final$szn1 <- ifelse(df$month >0 & df$month <=3 , 1, 0)
-View(df_final)
+#Checking knn imputation results
+
+#preprocess
+con = file("chartevents_filtered.csv","r")
+events = read.csv(con,nrows= 10000)
+df_og<-data.frame(events) 
+preproc <- process_chartevents(events)
+
+#knn 
+n5 <- missing(process_chartevents(events), 5)
+n3 <- missing(process_chartevents(events), 3)
+n10 <- missing(process_chartevents(events), 10)
+
+#mask of NA vals (so only compare MSE of imputed vals)
+set.seed(4) #make sure this is same as in missing{}, alter when running mult tests
+events[sample(1:nrow(events), 500),"VALUE"] <- NA
+
+df_og$VALUEIMPUTE = (n10$VALUE + n5$VALUE ) / 2 #averaging tended to reduce std deviation/outliers of imputation results
+
+preproc$diff = ifelse(is.na(events$VALUE),  df_og$VALUEIMPUTE - df_og$VALUE, NA)
+
+preproc$mse = preproc$diff ** 2 / 500
+hist(preproc$diff)
+summary(preproc$mse)
+
+
+#looking at other vals
+#df_og$VALUEIMPUTE = n3$VALUE #how to look at other k values
+#preproc$diff5 = ifelse(is.na(events$VALUE),  n5$VALUE - df_og$VALUE, NA)
+#preproc$diff10 = ifelse(is.na(events$VALUE),  n10$VALUE - df_og$VALUE, NA)
+#summary(preproc$diff5)
+#summary(preproc$diff10)
 
 
 ```
+
 ```{r}
-#Add missing data
-install.packages("mice")
-set.seed(15)
+#VISUALIZE DIFFERENCES / CHECK FOR OUTLIERS 
+differences <- c()
+for (i in range(100)){
+  
+con = file("chartevents_filtered.csv","r")
+events = read.csv(con,nrows= 5000)
+df_og<-data.frame(events) 
 
-df_final[sample(1:nrow(df_final), 300),"VALUE"] <- NA
+preproc <- process_chartevents(events)
+n5 <- missing(process_chartevents(events), 5)
+n3 <- missing(process_chartevents(events), 3)
+n10 <- missing(process_chartevents(events), 10)
+set.seed(4)
 
-### View Pattern of Missing Values
-#library(mice)
-#imputed = df_final[, c('X','VALUE')]
-#md.pattern(imputed)
+events[sample(1:nrow(events), 300),"VALUE"] <- NA
 
-#Imputing
-library(DMwR)
+df_og$VALUEIMPUTE = (n10$VALUE + n3$VALUE ) / 2
 
-n = 5
-knnout <- knnImputation(data.frame(df_final), k = n, meth = 'weighAv')
-View(knnout)
-df_final$diff = ifelse(is.na(df_final$VALUE),  knnout$VALUE - df$VALUE, NA)
+preproc$diff = ifelse(is.na(events$VALUE),  df_og$VALUEIMPUTE - df_og$VALUE, NA)
+#preproc$diff5 = ifelse(is.na(events$VALUE),  n5$VALUE - df_og$VALUE, NA)
+#preproc$diff10 = ifelse(is.na(events$VALUE),  n10$VALUE - df_og$VALUE, NA)
+differences = c(differences, preproc$diff)
+}
 
-
-#Check Results
-#print(n)
-#print(max(df_final$diff, na.rm = T))
-#print(min(df_final$diff, na.rm = T))
-#print(mean(df_final$diff, na.rm = T))
-
-hist(df_final$diff)
+hist(differences)
+summary(differences)
 ```
 
 
 
 ```{r}
 
-#Breaking up by type of reading
+```
+
+```{r}
+#Other data subsetting attempt 
+#Breaking up by type of reading (HR vs ABP vs TEMP)
+#Didnt improve knn imputation results
 
 hr = df_final[df_final$bpm == 1, ]
 hr = subset(hr, select=-c(deg_f, mmHg))
@@ -88,7 +169,7 @@ apb = df_final[df_final$mmHg == 1, ]
 apb = subset(apb, select=-c(deg_f, bpm))
 
 
-#Add missing data
+#Add extra missing data
 install.packages("mice")
 set.seed(15)
 hr[sample(1:nrow(hr), 300),"VALUE"] <- NA
@@ -103,11 +184,71 @@ sum(complete.cases(hr))
 knnout_hr <- knnImputation(hr, meth = 'weighAvg')
 View(knnout_hr)
 hr$diff = ifelse(is.na(hr$VALUE),  knnout_hr$VALUE - df$VALUE, NA)
-
 ```
 
 
+```{r}
+#Prelim idea/baseline results - knn k = 5
+#KNN imputation filtered chartevents
 
 
-The preview shows you a rendered HTML copy of the contents of the editor. Consequently, unlike *Knit*, *Preview* does not run any R code chunks. Instead, the output of the chunk when it was last run in the editor is displayed.
+con = file("chartevents_filtered.csv", "r")
+df = read.csv(con,nrows= 10000)
+
+# only numeric
+library(dplyr)
+df_num = select_if(df, is.numeric)
+
+df_final = subset(df_num, select=-c(ROW_ID, ROW_ID.1,ITEMID, CGID, VALUENUM, ERROR, SUBJECT_ID.1 )) #HADM_ID, ICUSTAY_ID, 
+#df = subset(df, EXPIRE_FLAG == 0) # remove outliers from fatalities 
+
+
+#GENDER
+df_final$male <- ifelse(df$GENDER == "M", 1,0)
+
+#UOM
+#UOM
+df_final$deg_f <- ifelse(df$VALUEUOM == '?F' , 1 ,0)
+df_final$bpm <- ifelse(df$VALUEUOM == 'bpm' , 1 ,0)
+df_final$mmHg <- ifelse(df$VALUEUOM == 'mmgHg' , 1 ,0)
+ 
+#AGE
+#-- are these vals correct ??
+df$yob <- as.integer(substr(df$DOB,0,4))
+
+#SEASON
+df$month <- as.integer(substr(df$CHARTTIME,6,7))
+df_final$szn4 <- ifelse(df$month >9 , 1 ,0)
+df_final$szn3 <- ifelse(df$month >6 & df$month <=9 , 1, 0)
+df_final$szn2 <- ifelse(df$month >3 & df$month <=6 , 1, 0)
+df_final$szn1 <- ifelse(df$month >0 & df$month <=3 , 1, 0)
+
+View(df_final)
+
+#Add missing data
+#library(mice)
+
+df_final[sample(1:nrow(df_final), 300),"VALUE"] <- NA
+
+### View Pattern of Missing Values
+#library(mice)
+#imputed = df_final[, c('X','VALUE')]
+#md.pattern(imputed)
+
+#Imputing
+library(DMwR)
+print(sum(is.na(df_final)))
+n = 5
+
+
+knnout <- knnImputation(data.frame(df_final), k = n, meth = 'weighAv')
+View(knnout)
+df_final$diff = ifelse(is.na(df_final$VALUE),  knnout$VALUE - df$VALUE, NA)
+
+hist(df_final$diff)
+
+
+
+
+```
 
